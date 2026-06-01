@@ -184,7 +184,11 @@ export const guardarVenta = async (req: Request, res: Response): Promise<void> =
       nombreCliente,
       totalVenta,
       totalDescuento,
-      ticket
+      ticket,
+      montoGs,
+      montoPeso,
+      montoDolar,
+      montoReal
     } = req.body;
 
     // Validar parámetros obligatorios
@@ -209,7 +213,11 @@ export const guardarVenta = async (req: Request, res: Response): Promise<void> =
       { name: 'nombreCliente', type: sql.VarChar(60), value: nombreCliente || '' },
       { name: 'totalVenta', type: sql.Money, value: totalVenta },
       { name: 'totalDescuento', type: sql.Money, value: totalDescuento || 0 },
-      { name: 'ticket', type: sql.Bit, value: ticket }
+      { name: 'ticket', type: sql.Bit, value: ticket },
+      { name: 'montoGs', type: sql.Money, value: montoGs || 0 },
+      { name: 'montoPeso', type: sql.Money, value: montoPeso || 0 },
+      { name: 'montoDolar', type: sql.Money, value: montoDolar || 0 },
+      { name: 'montoReal', type: sql.Money, value: montoReal || 0 }
     ];
 
     const result = await executeRequest({
