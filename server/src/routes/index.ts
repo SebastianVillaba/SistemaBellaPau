@@ -25,11 +25,13 @@ import terminalWebRoutes from './terminalWeb.routes';
 import stockInicialRoutes from './stockInicial.routes';
 import denominacionRoutes from './denominacion.routes';
 import anulacionRoutes from './anulacion.routes';
+import cotizacionRoutes from './cotizacion.routes';
 import consultaVentaRoutes from './consultaVenta.routes';
 
 const router = Router();
 
 router.use('/auth', authRoutes);
+router.use('/cotizaciones', cotizacionRoutes);
 router.use('/users', userRoutes);
 router.use('/persona', personaRoutes);
 router.use('/producto', productoRoutes);

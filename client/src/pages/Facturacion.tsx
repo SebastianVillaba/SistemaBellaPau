@@ -44,6 +44,8 @@ import GastoModal from '../components/GastoModal';
 import { useTerminal } from '../hooks/useTerminal';
 import SearchClienteModal from '../components/SearchClienteModal';
 import RequirePermission from '../components/RequirePermission';
+import { cotizacionService } from '../services/cotizacion.service';
+import VendedorValidationModal from '../components/VendedorValidationModal';
 
 const Facturacion: React.FC = () => {
   // Obtener información de la terminal
@@ -85,6 +87,43 @@ const Facturacion: React.FC = () => {
 
   // Modal de gastos
   const [openGastoModal, setOpenGastoModal] = useState(false);
+
+  // Security vendor authorization modal state
+  const [openVendedorModal, setOpenVendedorModal] = useState(false);
+  const [vendedorAutorizado, setVendedorAutorizado] = useState<{ idVendedor: number; nombre: string } | null>(null);
+
+  // Exchange rates and payments states
+  const [cotizaciones, setCotizaciones] = useState<{ [key: string]: number }>({
+    GS: 1,
+    USD: 6787,
+    RS: 1600,
+    ARS: 4.65
+  });
+  const [splitPayments, setSplitPayments] = useState({
+    montoGs: 0,
+    montoDolar: 0,
+    montoReal: 0,
+    montoPeso: 0
+  });
+
+  // Fetch exchange rates from backend
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const result = await cotizacionService.getCotizaciones();
+        const map: { [key: string]: number } = {};
+        result.forEach((item) => {
+          map[item.simbolo.toUpperCase()] = item.cotizacion;
+        });
+        if (map.GS) {
+          setCotizaciones(map);
+        }
+      } catch (error) {
+        console.error('Error fetching exchange rates in Facturacion:', error);
+      }
+    };
+    fetchRates();
+  }, []);
 
   // Calcular totales
   const calcularTotales = () => {
@@ -296,9 +335,22 @@ const Facturacion: React.FC = () => {
     setOpenPagoModal(true);
   };
 
-  // Cuando se confirma el pago, abrir modal de tipo de comprobante
-  const handleConfirmarPago = () => {
+  // Cuando se confirma el pago, almacenar montos y abrir interceptor de vendedor
+  const handleConfirmarPago = (amounts: {
+    montoGs: number;
+    montoDolar: number;
+    montoReal: number;
+    montoPeso: number;
+  }) => {
+    setSplitPayments(amounts);
     setOpenPagoModal(false);
+    setOpenVendedorModal(true);
+  };
+
+  // Cuando el vendedor es autenticado por el modal de seguridad
+  const handleVendedorAutenticado = (idVendedor: number, nombre: string) => {
+    setVendedorAutorizado({ idVendedor, nombre });
+    setOpenVendedorModal(false);
     setOpenTipoComprobanteModal(true);
   };
 
@@ -316,6 +368,11 @@ const Facturacion: React.FC = () => {
         return;
       }
 
+      if (!vendedorAutorizado) {
+        setError('Error: Se requiere autorización de vendedor para finalizar.');
+        return;
+      }
+
       const ventaData = {
         idUsuarioAlta: parseInt(idUsuario),
         idTerminalWeb: idTerminalWeb,
@@ -328,7 +385,12 @@ const Facturacion: React.FC = () => {
         nombreCliente: cliente?.nombre || 'SIN NOMBRE',
         totalVenta: total,
         totalDescuento: descuentoTotal,
-        ticket: esTicket ? 1 : 0
+        ticket: esTicket ? 1 : 0,
+        montoGs: splitPayments.montoGs,
+        montoPeso: splitPayments.montoPeso,
+        montoDolar: splitPayments.montoDolar,
+        montoReal: splitPayments.montoReal,
+        idVendedor: vendedorAutorizado.idVendedor
       };
 
       console.log('Venta a guardar:', ventaData);
@@ -362,7 +424,7 @@ const Facturacion: React.FC = () => {
                 rucCliente: datosReporte.cabecera.rucCliente,
 
                 // Información adicional
-                vendedor: datosReporte.cabecera.vendedor || 'Sistema',
+                vendedor: vendedorAutorizado?.nombre || datosReporte.cabecera.vendedor || 'Sistema',
                 totalLetra: datosReporte.cabecera.totalLetra,
                 leyenda: datosReporte.cabecera.leyenda,
 
@@ -407,7 +469,7 @@ const Facturacion: React.FC = () => {
                 telefonoCliente: cliente?.telefono || '',
 
                 // Información adicional
-                vendedor: 'Sistema', // TODO: Obtener del usuario logueado
+                vendedor: vendedorAutorizado?.nombre || 'Sistema',
                 tipoFactura: datosReporte.cabecera.tipoFactura,
                 formaVenta: datosReporte.cabecera.formaVenta,
 
@@ -469,6 +531,13 @@ const Facturacion: React.FC = () => {
     setItems([]);
     setError('');
     setSuccess('');
+    setVendedorAutorizado(null);
+    setSplitPayments({
+      montoGs: 0,
+      montoDolar: 0,
+      montoReal: 0,
+      montoPeso: 0
+    });
     // Incrementar número de factura
     try {
       const facturaData = await ventaService.consultaFacturaCorrelativa(idTerminalWeb);
@@ -594,46 +663,84 @@ const Facturacion: React.FC = () => {
             </Grid>
           </Paper>
 
-          <Paper sx={{ p: 2, mb: 2, minHeight: '18vh', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-              <Typography variant='h2'>₲</Typography>
-              <Typography
-                variant='h3'
-                sx={{
-                  backgroundColor: "#2dfc61",
-                  color: "black",
-                  padding: '4px 8px',
-                  borderRadius: '5px',
-                  border: '1.5px solid #000',
-                  mx: 1,
-                  minWidth: '25vh',
-                  maxWidth: '100%',
-                  textAlign: 'center',
-                  wordBreak: 'break-word'
-                }}
-              >{total.toLocaleString()}</Typography>
-            </div>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              marginTop: '12px'
-            }}>
-              <Typography
-                sx={{
-                  fontWeight: 'bold',
-                  fontSize: 'clamp(1rem, 2.5vw, 1.5rem)',
-                  backgroundColor: '#f5f5f5',
-                  padding: '6px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid #ddd',
-                  letterSpacing: '1px',
-                  textAlign: 'center',
-                  wordBreak: 'break-all',
-                  maxWidth: '100%'
-                }}
-                variant='h5'
-              >{numeroFactura}</Typography>
-            </div>
+          <Paper sx={{
+            p: 2.5,
+            mb: 2,
+            minWidth: '340px',
+            background: 'linear-gradient(135deg, #102a43 0%, #193e62 100%)',
+            color: 'white',
+            borderRadius: 3,
+            boxShadow: 6,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            justifyContent: 'center',
+            border: '1px solid rgba(255, 255, 255, 0.08)'
+          }}>
+            {/* Invoice Header */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1, borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
+              <Typography variant="caption" sx={{ opacity: 0.8, fontWeight: 'bold', letterSpacing: '0.5px' }}>
+                Nº FACTURA:
+              </Typography>
+              <Typography variant="body1" sx={{ fontWeight: 'extrabold', letterSpacing: '1px', color: '#ffb142' }}>
+                {numeroFactura || '---'}
+              </Typography>
+            </Box>
+
+            {/* Seller Label */}
+            {vendedorAutorizado && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(255,255,255,0.08)', px: 1.5, py: 0.75, borderRadius: 1.5, border: '1px solid rgba(45, 252, 97, 0.2)' }}>
+                <Typography variant="caption" sx={{ fontWeight: 'bold', opacity: 0.9 }}>
+                  Vendedor:
+                </Typography>
+                <Typography variant="caption" sx={{ fontWeight: 'extrabold', color: '#2dfc61', letterSpacing: '0.5px' }}>
+                  {vendedorAutorizado.nombre.toUpperCase()}
+                </Typography>
+              </Box>
+            )}
+
+            {/* Currency Grid */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+              {/* Guaraníes */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', px: 1.5, py: 1, borderRadius: 2, border: '1px solid rgba(45, 252, 97, 0.3)' }}>
+                <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'rgba(255,255,255,0.9)' }}>
+                  Total Guaraníes (Gs.)
+                </Typography>
+                <Typography variant="h5" sx={{ fontWeight: 'extrabold', color: '#2dfc61' }}>
+                  ₲ {total.toLocaleString('es-PY')}
+                </Typography>
+              </Box>
+
+              {/* Dólares */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.04)', px: 1.5, py: 0.75, borderRadius: 1.5 }}>
+                <Typography variant="body2" sx={{ opacity: 0.85, fontSize: '0.85rem' }}>
+                  Total Dólares (U$)
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
+                  U$ {(total / (cotizaciones.USD || 6787)).toLocaleString('es-PY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Typography>
+              </Box>
+
+              {/* Reales */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.04)', px: 1.5, py: 0.75, borderRadius: 1.5 }}>
+                <Typography variant="body2" sx={{ opacity: 0.85, fontSize: '0.85rem' }}>
+                  Total Reales (R$)
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
+                  R$ {(total / (cotizaciones.RS || 1600)).toLocaleString('es-PY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Typography>
+              </Box>
+
+              {/* Pesos */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.04)', px: 1.5, py: 0.75, borderRadius: 1.5 }}>
+                <Typography variant="body2" sx={{ opacity: 0.85, fontSize: '0.85rem' }}>
+                  Total Pesos ($)
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 'bold', fontSize: '0.95rem' }}>
+                  $ {(total / (cotizaciones.ARS || 4.65)).toLocaleString('es-PY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Typography>
+              </Box>
+            </Box>
           </Paper>
         </div>
 
@@ -824,6 +931,13 @@ const Facturacion: React.FC = () => {
           totalVenta={total}
           onClose={() => setOpenPagoModal(false)}
           onConfirm={handleConfirmarPago}
+        />
+
+        {/* Modal de validación de vendedor (Gatekeeper) */}
+        <VendedorValidationModal
+          open={openVendedorModal}
+          onClose={() => setOpenVendedorModal(false)}
+          onSuccess={handleVendedorAutenticado}
         />
 
         {/* Modal de selección de tipo de comprobante */}

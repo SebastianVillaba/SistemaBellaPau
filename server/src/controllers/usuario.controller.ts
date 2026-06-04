@@ -137,3 +137,63 @@ export const buscarPersonaParaUsuario = async (req: Request, res: Response) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+export const validarVendedor = async (req: Request, res: Response): Promise<void> => {
+    const { password } = req.body;
+
+    if (!password) {
+        res.status(400).json({ success: false, message: 'La contraseña es obligatoria' });
+        return;
+    }
+
+    try {
+        // Query active users to verify password in-memory (bcrypt compare)
+        const result = await executeRequest({
+            query: 'SELECT idUsuario, username, password FROM usuario WHERE activo = 1',
+            isStoredProcedure: false
+        });
+
+        let matchedUser = null;
+        for (const user of result.recordset) {
+            const isMatch = await bcrypt.compare(password, user.password);
+            if (isMatch) {
+                matchedUser = user;
+                break;
+            }
+        }
+
+        if (!matchedUser) {
+            res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+            return;
+        }
+
+        // Execute stored procedure to verify if they are a valid seller
+        const spResult = await executeRequest({
+            isStoredProcedure: true,
+            query: 'sp_vendedorUsuario',
+            inputs: [
+                { name: 'idUsuario', type: sql.Int, value: matchedUser.idUsuario }
+            ]
+        });
+
+        if (spResult.recordset && spResult.recordset.length > 0) {
+            res.status(200).json({
+                success: true,
+                result: {
+                    idVendedor: spResult.recordset[0].idVendedor,
+                    nombre: spResult.recordset[0].vendedor
+                }
+            });
+        } else {
+            res.status(403).json({
+                success: false,
+                message: 'Usted no está habilitado/a como Vendedor/a en el Sistema..'
+            });
+        }
+
+    } catch (error: any) {
+        logger.error('Error al validar vendedor:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+

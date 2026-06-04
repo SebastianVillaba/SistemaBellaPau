@@ -188,12 +188,13 @@ export const guardarVenta = async (req: Request, res: Response): Promise<void> =
       montoGs,
       montoPeso,
       montoDolar,
-      montoReal
+      montoReal,
+      idVendedor
     } = req.body;
 
     // Validar parámetros obligatorios
     if (!idUsuarioAlta || !idTerminalWeb || !idPersonaJur || !idMovimientoCaja ||
-      !idTipoPago || !idTipoVenta || totalVenta === undefined || ticket === undefined) {
+      !idTipoPago || !idTipoVenta || totalVenta === undefined || ticket === undefined || !idVendedor) {
       res.status(400).json({
         success: false,
         message: 'Faltan parámetros requeridos para guardar la venta.'
@@ -217,7 +218,8 @@ export const guardarVenta = async (req: Request, res: Response): Promise<void> =
       { name: 'montoGs', type: sql.Money, value: montoGs || 0 },
       { name: 'montoPeso', type: sql.Money, value: montoPeso || 0 },
       { name: 'montoDolar', type: sql.Money, value: montoDolar || 0 },
-      { name: 'montoReal', type: sql.Money, value: montoReal || 0 }
+      { name: 'montoReal', type: sql.Money, value: montoReal || 0 },
+      { name: 'idVendedor', type: sql.Int, value: idVendedor }
     ];
 
     const result = await executeRequest({

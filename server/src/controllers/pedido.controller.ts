@@ -73,6 +73,7 @@ export const eliminarDetallePedido = async (req: Request, res: Response) => {
 };
 
 export const guardarPedidoFinal = async (req: Request, res: Response) => {
+    
     const { idUsuarioAlta, idTerminalWeb, idPedidoExistente, idTipoCobro, idCliente, idDelivery, direccion, fechaEntrega, observacion } = req.body;
 
     try {
