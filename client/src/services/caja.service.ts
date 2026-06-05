@@ -91,11 +91,19 @@ export const cajaService = {
      */
     abrirCaja: async (
         idUsuario: number,
-        idTerminalWeb: number
+        idTerminalWeb: number,
+        montoGs: number = 0,
+        montoDolar: number = 0,
+        montoReal: number = 0,
+        montoPeso: number = 0
     ): Promise<{ success: boolean; idMovimientoCaja?: number; message?: string }> => {
         const response = await axios.post(`${API_URL}/caja/abrir`, {
             idUsuario,
-            idTerminalWeb
+            idTerminalWeb,
+            montoGs,
+            montoDolar,
+            montoReal,
+            montoPeso
         });
         return response.data;
     },

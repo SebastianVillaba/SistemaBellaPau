@@ -11,6 +11,8 @@ import {
     Chip,
     Alert,
     CircularProgress,
+    TextField,
+    InputAdornment,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
@@ -18,8 +20,6 @@ import PointOfSaleIcon from '@mui/icons-material/PointOfSale';
 import MoneyIcon from '@mui/icons-material/Money';
 import MoneyOffIcon from '@mui/icons-material/MoneyOff';
 import SyncIcon from '@mui/icons-material/Sync';
-
-import DetArqueoEfectivo from '../../components/Caja/detArqueoEfectivo';
 import DetArqueoGastos from '../../components/Caja/detArqueoGastos';
 import DetArqueoTransferencias from '../../components/Caja/detArqueoTransferencias';
 import RequirePermission from '../../components/RequirePermission';
@@ -43,6 +43,17 @@ const ArqueoCaja: React.FC = () => {
     const [totalEfectivo, setTotalEfectivo] = useState(0);
     const [totalGastos, setTotalGastos] = useState(0);
 
+    // Estados para montos consolidados por divisa
+    const [montoGs, setMontoGs] = useState<string>('');
+    const [montoDolar, setMontoDolar] = useState<string>('');
+    const [montoReal, setMontoReal] = useState<string>('');
+    const [montoPeso, setMontoPeso] = useState<string>('');
+
+    // Sincronizar montoGs con totalEfectivo
+    useEffect(() => {
+        setTotalEfectivo(parseFloat(montoGs) || 0);
+    }, [montoGs]);
+
     // Verificar estado de caja al cargar
     useEffect(() => {
         if (idTerminalWeb && nroCaja && estadoCaja) {
@@ -63,11 +74,10 @@ const ArqueoCaja: React.FC = () => {
             return;
         }
 
-        // Verificar que haya arqueo cargado
-        if (totalEfectivo <= 0) {
-            setError('Debe cargar el arqueo de efectivo antes de iniciar la caja');
-            return;
-        }
+        const mGs = parseFloat(montoGs) || 0;
+        const mDolar = parseFloat(montoDolar) || 0;
+        const mReal = parseFloat(montoReal) || 0;
+        const mPeso = parseFloat(montoPeso) || 0;
 
         setLoading(true);
         setError('');
@@ -76,7 +86,14 @@ const ArqueoCaja: React.FC = () => {
         try {
             const idUsuario = parseInt(localStorage.getItem('idUsuario') || '1');
 
-            const response = await cajaService.abrirCaja(idUsuario, idTerminalWeb);
+            const response = await cajaService.abrirCaja(
+                idUsuario,
+                idTerminalWeb,
+                mGs,
+                mDolar,
+                mReal,
+                mPeso
+            );
 
             if (response.success && response.idMovimientoCaja) {
                 localStorage.setItem('idMovimientoCaja', response.idMovimientoCaja.toString());
@@ -86,6 +103,12 @@ const ArqueoCaja: React.FC = () => {
                 setCajaAbierta(true);
                 setNroCajaEstado(1); // TODO: Obtener del backend
                 setSuccess('Caja abierta exitosamente');
+
+                // Limpiar inputs
+                setMontoGs('');
+                setMontoDolar('');
+                setMontoReal('');
+                setMontoPeso('');
             }
         } catch (err: any) {
             console.error('Error al abrir caja:', err);
@@ -98,12 +121,6 @@ const ArqueoCaja: React.FC = () => {
     const handleCerrarCaja = async () => {
         if (!idTerminalWeb || !idMovimientoCaja) {
             setError('No hay caja abierta para cerrar');
-            return;
-        }
-
-        // Verificar que haya arqueo de cierre
-        if (totalEfectivo <= 0) {
-            setError('Debe cargar el arqueo de cierre antes de cerrar la caja');
             return;
         }
 
@@ -124,6 +141,7 @@ const ArqueoCaja: React.FC = () => {
                 setCajaAbierta(false);
                 setNroCajaEstado(null);
                 setSuccess('Caja cerrada exitosamente');
+                setTotalEfectivo(0);
 
                 // Generar reporte de cierre de caja
                 const idParaReporte = response.idMovimientoCaja || idMovimientoCaja;
@@ -270,23 +288,88 @@ const ArqueoCaja: React.FC = () => {
 
                 {/* Secciones modulares */}
                 <Grid container spacing={3}>
-                    {/* Arqueo de Efectivo */}
+                    {/* Montos de Apertura de Caja */}
                     <Grid size={{ xs: 12, md: 6 }}>
                         <Card elevation={3}>
                             <CardHeader
                                 avatar={<MoneyIcon color="success" />}
                                 title={
                                     <Typography variant="h6" fontWeight="bold">
-                                        💵 Arqueo de Efectivo (Guaraníes)
+                                        {cajaAbierta ? '💵 Caja Abierta' : '💵 Apertura de Caja'}
                                     </Typography>
                                 }
-                                sx={{ backgroundColor: '#e8f5e9', borderBottom: '1px solid #c8e6c9' }}
+                                sx={{ 
+                                    backgroundColor: cajaAbierta ? '#e3f2fd' : '#e8f5e9', 
+                                    borderBottom: cajaAbierta ? '1px solid #bbdefb' : '1px solid #c8e6c9' 
+                                }}
                             />
                             <CardContent>
-                                <DetArqueoEfectivo
-                                    idTerminalWeb={idTerminalWeb || 0}
-                                    onTotalChange={setTotalEfectivo}
-                                />
+                                {!cajaAbierta ? (
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                                            Ingrese los montos iniciales por divisa para iniciar la caja:
+                                        </Typography>
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Guaraníes (Gs.)"
+                                                    type="number"
+                                                    value={montoGs}
+                                                    onChange={(e) => setMontoGs(e.target.value)}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start">₲</InputAdornment>,
+                                                    }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Dólares (USD)"
+                                                    type="number"
+                                                    value={montoDolar}
+                                                    onChange={(e) => setMontoDolar(e.target.value)}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                                    }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Reales (BRL)"
+                                                    type="number"
+                                                    value={montoReal}
+                                                    onChange={(e) => setMontoReal(e.target.value)}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start">R$</InputAdornment>,
+                                                    }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Pesos (ARS)"
+                                                    type="number"
+                                                    value={montoPeso}
+                                                    onChange={(e) => setMontoPeso(e.target.value)}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                                    }}
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    </Box>
+                                ) : (
+                                    <Box sx={{ p: 2, textAlign: 'center' }}>
+                                        <Typography variant="body1" color="text.secondary">
+                                            La caja se encuentra abierta y activa.
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                            Puede registrar gastos o realizar el cierre desde esta pantalla.
+                                        </Typography>
+                                    </Box>
+                                )}
                             </CardContent>
                         </Card>
                     </Grid>

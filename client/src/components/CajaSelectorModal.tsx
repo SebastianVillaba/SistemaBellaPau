@@ -19,17 +19,17 @@ import {
   TableRow,
   IconButton,
   Divider,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
-import TextField from './UppercaseTextField';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import AddIcon from '@mui/icons-material/Add';
-import type { Caja, MovimientoCaja, ArqueoCajaTmpItem } from '../types/caja.types';
+import type { Caja, MovimientoCaja } from '../types/caja.types';
 import axios from 'axios';
 import { reporteService } from '../services/reporte.service';
 import { ticketService } from '../services/ticket.service';
-import { cajaService, DENOMINACIONES } from '../services/caja.service';
+import { cajaService } from '../services/caja.service';
 import { useTerminal } from '../hooks/useTerminal';
 
 interface CajaSelectorModalProps {
@@ -53,11 +53,11 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState(false);
 
-  // Estados para arqueo de caja
-  const [arqueoItems, setArqueoItems] = useState<ArqueoCajaTmpItem[]>([]);
-  const [totalArqueo, setTotalArqueo] = useState<number>(0);
-  const [montoMoneda, setMontoMoneda] = useState<string>('');
-  const [cantidadBillete, setCantidadBillete] = useState<{ [key: number]: string }>({});
+  // Estados para arqueo de caja (montos consolidados por divisa)
+  const [montoGs, setMontoGs] = useState<string>('');
+  const [montoDolar, setMontoDolar] = useState<string>('');
+  const [montoReal, setMontoReal] = useState<string>('');
+  const [montoPeso, setMontoPeso] = useState<string>('');
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
@@ -67,13 +67,6 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
       cargarCajas();
     }
   }, [open]);
-
-  // Cargar arqueo cuando se selecciona una caja
-  useEffect(() => {
-    if (selectedCaja && idTerminalWeb) {
-      cargarArqueo();
-    }
-  }, [selectedCaja, idTerminalWeb]);
 
   const cargarCajas = async () => {
     setLoading(true);
@@ -110,76 +103,6 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
     }
   };
 
-  const cargarArqueo = async () => {
-    if (!idTerminalWeb) return;
-
-    try {
-      const response = await cajaService.listarArqueoCajaTmp(idTerminalWeb);
-      if (response.success) {
-        setArqueoItems(response.result);
-        setTotalArqueo(response.totalArqueo || 0);
-      }
-    } catch (error) {
-      console.error('Error al cargar arqueo:', error);
-    }
-  };
-
-  const handleAgregarDenominacion = async (idDenominacion: number) => {
-    if (!idTerminalWeb) {
-      alert('Error: Terminal no identificada');
-      return;
-    }
-
-    const cantidad = parseInt(cantidadBillete[idDenominacion] || '1');
-    if (cantidad <= 0) {
-      alert('La cantidad debe ser mayor a 0');
-      return;
-    }
-
-    setLoadingAction(true);
-    try {
-      await cajaService.agregarArqueoCajaTmp(idTerminalWeb, idDenominacion, cantidad);
-      setCantidadBillete(prev => ({ ...prev, [idDenominacion]: '' }));
-      await cargarArqueo();
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Error al agregar denominación');
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
-  const handleEliminarDenominacion = async (idArqueoTmp: number) => {
-    
-  }
-
-  /**
-   * Agrega un monto de monedas al arqueo de caja
-   */
-  const handleAgregarMoneda = async () => {
-    if (!idTerminalWeb) {
-      alert('Error: Terminal no identificada');
-      return;
-    }
-
-    const monto = parseInt(montoMoneda);
-    if (!monto || monto <= 0) {
-      alert('Ingrese un monto válido');
-      return;
-    }
-
-    setLoadingAction(true);
-    try {
-      // ID 7 para monedas (asumiendo que existe en la BD)
-      await cajaService.agregarArqueoCajaTmp(idTerminalWeb, 7, monto);
-      setMontoMoneda('');
-      await cargarArqueo();
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Error al agregar moneda');
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
   const handleSelectCaja = async (caja: Caja) => {
     const idCajaActual = localStorage.getItem('idCajaActual');
 
@@ -202,11 +125,11 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
     }
     setSelectedCaja(caja);
     setSelectedMovimiento(null);
-    // Limpiar estados de arqueo al cambiar de caja
-    setArqueoItems([]);
-    setTotalArqueo(0);
-    setMontoMoneda('');
-    setCantidadBillete({});
+    // Limpiar estados al cambiar de caja
+    setMontoGs('');
+    setMontoDolar('');
+    setMontoReal('');
+    setMontoPeso('');
   };
 
   const handleAbrirCaja = async () => {
@@ -215,19 +138,21 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
       return;
     }
 
-    if (totalArqueo <= 0) {
-      alert('Por favor ingrese al menos una denominación para el arqueo inicial');
-      return;
-    }
+    const mGs = parseFloat(montoGs) || 0;
+    const mDolar = parseFloat(montoDolar) || 0;
+    const mReal = parseFloat(montoReal) || 0;
+    const mPeso = parseFloat(montoPeso) || 0;
 
     setLoadingAction(true);
     try {
       const idUsuario = localStorage.getItem('idUsuario') || '1';
       const response = await cajaService.abrirCaja(
-        selectedCaja.idCaja,
         parseInt(idUsuario),
-        totalArqueo,
-        idTerminalWeb
+        idTerminalWeb,
+        mGs,
+        mDolar,
+        mReal,
+        mPeso
       );
 
       if (response.success) {
@@ -242,9 +167,11 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
         await cargarCajas();
         await cargarMovimientos(selectedCaja.idCaja);
 
-        // Limpiar arqueo
-        setArqueoItems([]);
-        setTotalArqueo(0);
+        // Limpiar campos
+        setMontoGs('');
+        setMontoDolar('');
+        setMontoReal('');
+        setMontoPeso('');
 
         // Cerrar el modal después de abrir la caja
         onSelectCaja(selectedCaja);
@@ -263,11 +190,6 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
       return;
     }
 
-    if (totalArqueo <= 0) {
-      alert('Por favor ingrese al menos una denominación para el arqueo final');
-      return;
-    }
-
     // Verificar que sea MI caja la que estoy cerrando
     const idMovimientoCaja = localStorage.getItem('idMovimientoCaja');
     const idCajaActual = localStorage.getItem('idCajaActual');
@@ -281,9 +203,7 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
     try {
       const idUsuario = localStorage.getItem('idUsuario') || '1';
       const response = await cajaService.cerrarCaja(
-        parseInt(idMovimientoCaja),
         parseInt(idUsuario),
-        totalArqueo,
         idTerminalWeb
       );
 
@@ -295,10 +215,6 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
         alert('Caja cerrada exitosamente');
         await cargarCajas();
         await cargarMovimientos(selectedCaja.idCaja);
-
-        // Limpiar arqueo
-        setArqueoItems([]);
-        setTotalArqueo(0);
 
         handleCancel();
       }
@@ -313,10 +229,10 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
     setSelectedCaja(null);
     setExpandedCaja(null);
     setSelectedMovimiento(null);
-    setArqueoItems([]);
-    setTotalArqueo(0);
-    setMontoMoneda('');
-    setCantidadBillete({});
+    setMontoGs('');
+    setMontoDolar('');
+    setMontoReal('');
+    setMontoPeso('');
     onClose();
   };
 
@@ -359,134 +275,94 @@ const CajaSelectorModal: React.FC<CajaSelectorModalProps> = ({
     }).format(value);
   };
 
-  // Componente de UI para arqueo de denominaciones
+  // Componente de UI para ingresar montos consolidados por divisa
   const ArqueoUI = ({ modo }: { modo: 'apertura' | 'cierre' }) => (
     <Box sx={{ mt: 2 }}>
-      <Typography variant="h6" gutterBottom sx={{ color: modo === 'apertura' ? 'success.main' : 'error.main' }}>
-        {modo === 'apertura' ? '💰 Arqueo de Apertura' : '💰 Arqueo de Cierre'}
+      <Typography variant="h6" gutterBottom sx={{ color: modo === 'apertura' ? 'success.main' : 'error.main', fontWeight: 'bold' }}>
+        {modo === 'apertura' ? '💰 Apertura de Caja' : '💰 Cierre de Caja'}
       </Typography>
 
-      {/* Grid de botones de denominaciones */}
-      <Paper sx={{ p: 2, mb: 2, backgroundColor: '#f5f5f5' }}>
-        <Typography variant="subtitle2" gutterBottom>
-          Billetes en Guaraníes
-        </Typography>
-        <Grid container spacing={1}>
-          {DENOMINACIONES.map((denom) => (
-            <Grid size={{ xs: 6, sm: 4 }} key={denom.id}>
-              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                <TextField
-                  size="small"
-                  type="number"
-                  placeholder="Cant."
-                  value={cantidadBillete[denom.id] || ''}
-                  onChange={(e) => setCantidadBillete(prev => ({
-                    ...prev,
-                    [denom.id]: e.target.value
-                  }))}
-                  sx={{ width: 70 }}
-                  inputProps={{ min: 1 }}
-                />
-                <Button
-                  variant="contained"
-                  size="small"
-                  onClick={() => handleAgregarDenominacion(denom.id)}
-                  disabled={loadingAction}
-                  sx={{
-                    minWidth: 'auto',
-                    px: 1,
-                    backgroundColor: '#1976d2',
-                    fontSize: '0.75rem',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {formatCurrency(denom.valor)}
-                </Button>
-              </Box>
+      {modo === 'apertura' ? (
+        <Paper sx={{ p: 2, mb: 2, backgroundColor: '#f9f9f9', borderRadius: 2 }}>
+          <Typography variant="subtitle2" gutterBottom sx={{ mb: 2, color: 'text.secondary' }}>
+            Ingrese los montos iniciales por divisa:
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Guaraníes (Gs.)"
+                type="number"
+                value={montoGs}
+                onChange={(e) => setMontoGs(e.target.value)}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">₲</InputAdornment>,
+                }}
+              />
             </Grid>
-          ))}
-        </Grid>
-
-        {/* Input para monedas */}
-        <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
-          <TextField
-            size="small"
-            type="number"
-            label="Monto en Monedas (Gs.)"
-            value={montoMoneda}
-            onChange={(e) => setMontoMoneda(e.target.value)}
-            sx={{ flex: 1 }}
-            inputProps={{ min: 1 }}
-          />
-          <IconButton
-            color="primary"
-            onClick={handleAgregarMoneda}
-            disabled={loadingAction || !montoMoneda}
-            sx={{ backgroundColor: '#e3f2fd' }}
-          >
-            <AddIcon />
-          </IconButton>
-        </Box>
-      </Paper>
-
-      {/* Tabla de items del arqueo */}
-      {arqueoItems.length > 0 && (
-        <TableContainer component={Paper} sx={{ mb: 2, maxHeight: 200 }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e8f5e9' }}>Denominación</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold', backgroundColor: '#e8f5e9' }}>Valor</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold', backgroundColor: '#e8f5e9' }}>Cantidad</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold', backgroundColor: '#e8f5e9' }}>Subtotal</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold', backgroundColor: '#e8f5e9' }}>Acción</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {arqueoItems.map((item) => (
-                <TableRow key={item.idArqueoTmp}>
-                  <TableCell>{item.nombreBillete}</TableCell>
-                  <TableCell align="right">{formatCurrency(item.valor)}</TableCell>
-                  <TableCell align="right">{item.cantidad}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                    {formatCurrency(item.subtotal)}
-                  </TableCell>
-                  <TableCell align="right">
-                    <IconButton
-                      color="error"
-                      onClick={() => handleEliminarItem(item.idArqueoTmp)}
-                      disabled={loadingAction}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Dólares (USD)"
+                type="number"
+                value={montoDolar}
+                onChange={(e) => setMontoDolar(e.target.value)}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                }}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Reales (BRL)"
+                type="number"
+                value={montoReal}
+                onChange={(e) => setMontoReal(e.target.value)}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">R$</InputAdornment>,
+                }}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                label="Pesos (ARS)"
+                type="number"
+                value={montoPeso}
+                onChange={(e) => setMontoPeso(e.target.value)}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                }}
+              />
+            </Grid>
+          </Grid>
+        </Paper>
+      ) : (
+        <Paper sx={{ p: 2, mb: 2, backgroundColor: '#fff5f5', borderRadius: 2 }}>
+          <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 1 }}>
+            ¿Está seguro de que desea realizar el cierre de caja? Se registrarán las transacciones correspondientes al movimiento actual.
+          </Typography>
+        </Paper>
       )}
-
-      {/* Total del arqueo */}
-      <Paper sx={{ p: 2, backgroundColor: modo === 'apertura' ? '#e8f5e9' : '#ffebee' }}>
-        <Typography variant="h5" align="right" sx={{ fontWeight: 'bold' }}>
-          TOTAL: Gs. {formatCurrency(totalArqueo)}
-        </Typography>
-      </Paper>
-
-      <Divider sx={{ my: 2 }} />
 
       {/* Botón de acción */}
       <Button
         variant="contained"
         color={modo === 'apertura' ? 'success' : 'error'}
         onClick={modo === 'apertura' ? handleAbrirCaja : handleCerrarCaja}
-        disabled={loadingAction || totalArqueo <= 0}
+        disabled={loadingAction}
         fullWidth
         size="large"
+        sx={{
+          py: 1.5,
+          fontWeight: 'bold',
+          borderRadius: 2,
+          textTransform: 'none',
+        }}
       >
         {loadingAction ? (
-          <CircularProgress size={24} />
+          <CircularProgress size={24} color="inherit" />
         ) : modo === 'apertura' ? (
           'Abrir Caja'
         ) : (

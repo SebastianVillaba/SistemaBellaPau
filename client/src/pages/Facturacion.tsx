@@ -380,7 +380,7 @@ const Facturacion: React.FC = () => {
         idMovimientoCaja: parseInt(idMovimientoCaja),
         idTipoPago: 1, // TODO: Obtener del formulario
         idTipoVenta: 1, // TODO: Obtener del formulario
-        idCliente: cliente?.idCliente || 8, // 8 = Cliente SIN NOMBRE
+        idCliente: cliente?.idCliente || 1, // 1 = Cliente SIN NOMBRE
         ruc: cliente?.documento || 'XXXXXXX',
         nombreCliente: cliente?.nombre || 'SIN NOMBRE',
         totalVenta: total,

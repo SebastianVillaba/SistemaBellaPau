@@ -45,7 +45,7 @@ export const consultarCajas = async (req: Request, res: Response): Promise<void>
  */
 export const abrirCaja = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { idUsuario, idTerminalWeb } = req.body;
+    const { idUsuario, idTerminalWeb, montoGs, montoDolar, montoReal, montoPeso } = req.body;
 
     if (!idUsuario || !idTerminalWeb) {
       res.status(400).json({
@@ -55,9 +55,24 @@ export const abrirCaja = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    const parseMonto = (val: any): number => {
+      if (val === undefined || val === null || val === '') return 0;
+      const num = parseFloat(val);
+      return isNaN(num) ? 0 : num;
+    };
+
+    const mGs = parseMonto(montoGs);
+    const mDolar = parseMonto(montoDolar);
+    const mReal = parseMonto(montoReal);
+    const mPeso = parseMonto(montoPeso);
+
     const inputs = [
+      { name: 'idTerminalWeb', type: sql.Int, value: idTerminalWeb },
       { name: 'idUsuario', type: sql.Int, value: idUsuario },
-      { name: 'idTerminalWeb', type: sql.Int, value: idTerminalWeb }
+      { name: 'montoGs', type: sql.Money, value: mGs },
+      { name: 'montoDolar', type: sql.Money, value: mDolar },
+      { name: 'montoReal', type: sql.Money, value: mReal },
+      { name: 'montoPeso', type: sql.Money, value: mPeso }
     ];
 
     const result = await executeRequest({
