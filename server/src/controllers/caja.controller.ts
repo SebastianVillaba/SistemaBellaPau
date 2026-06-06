@@ -433,3 +433,139 @@ export const eliminarArqueoCajaTmp = async (req: Request, res: Response): Promis
     });
   }
 }
+
+/**
+ * Controller para cargar cierre temporal de la caja
+ */
+export const cargarTmpCierreCaja = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { idTerminalWeb, idPersonal } = req.body;
+
+    if (idTerminalWeb === undefined || idPersonal === undefined) {
+      res.status(400).json({
+        success: false,
+        message: 'Faltan parámetros requeridos (idTerminalWeb, idPersonal).'
+      });
+      return;
+    }
+
+    const inputs = [
+      { name: 'idTerminalWeb', type: sql.Int, value: typeof idTerminalWeb === 'string' ? parseInt(idTerminalWeb) : idTerminalWeb },
+      { name: 'idPersonal', type: sql.Int, value: typeof idPersonal === 'string' ? parseInt(idPersonal) : idPersonal }
+    ];
+
+    await executeRequest({
+      query: 'sp_cargarTmpCierreCaja',
+      inputs: inputs as any,
+      isStoredProcedure: true
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Cierre temporal cargado exitosamente'
+    });
+
+  } catch (error: any) {
+    if (error.number >= 50000) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: "Error al cargar el cierre temporal",
+        error: error.message
+      });
+    }
+  }
+};
+
+/**
+ * Controller para consultar el cierre temporal de la caja
+ */
+export const consultaTmpCierreCaja = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { idTerminalWeb } = req.params;
+
+    if (!idTerminalWeb) {
+      res.status(400).json({
+        success: false,
+        message: "El parámetro 'idTerminalWeb' es obligatorio"
+      });
+      return;
+    }
+
+    const inputs = [
+      { name: 'idTerminalWeb', type: sql.Int, value: parseInt(idTerminalWeb) }
+    ];
+
+    const result = await executeRequest({
+      query: 'sp_consultaTmpCierreCaja',
+      inputs: inputs as any,
+      isStoredProcedure: true
+    });
+
+    const data = result.recordset && result.recordset[0] ? result.recordset[0] : null;
+
+    if (!data) {
+      res.status(404).json({
+        success: false,
+        message: "No se encontraron datos de cierre temporal para la terminal especificada."
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      result: data
+    });
+
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Error al consultar la caja temporal",
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Controller para consultar los movimientos de caja
+ */
+export const obtenerMovimientosCaja = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { idCaja } = req.query as any;
+
+    const result = await executeRequest({
+      query: 'sp_consultaMovimientoCaja',
+      isStoredProcedure: true
+    });
+
+    let recordset = result.recordset || [];
+
+    // Mapear id a idMovimientoCaja para compatibilidad con el frontend
+    let movimientos = recordset.map((row: any) => ({
+      ...row,
+      idMovimientoCaja: row.id !== undefined ? row.id : row.idMovimientoCaja
+    }));
+
+    // Filtrar por idCaja si se proporciona
+    if (idCaja) {
+      movimientos = movimientos.filter((m: any) => m.nroCaja === parseInt(idCaja));
+    }
+
+    res.status(200).json({
+      success: true,
+      result: movimientos
+    });
+
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Error al consultar los movimientos de caja",
+      error: error.message
+    });
+  }
+};
+

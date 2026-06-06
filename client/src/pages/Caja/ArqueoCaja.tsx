@@ -13,20 +13,24 @@ import {
     CircularProgress,
     TextField,
     InputAdornment,
+    Divider,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import PointOfSaleIcon from '@mui/icons-material/PointOfSale';
 import MoneyIcon from '@mui/icons-material/Money';
-import MoneyOffIcon from '@mui/icons-material/MoneyOff';
-import SyncIcon from '@mui/icons-material/Sync';
-import DetArqueoGastos from '../../components/Caja/detArqueoGastos';
-import DetArqueoTransferencias from '../../components/Caja/detArqueoTransferencias';
 import RequirePermission from '../../components/RequirePermission';
 import { useTerminal } from '../../hooks/useTerminal';
 import { cajaService } from '../../services/caja.service';
 import { reporteService } from '../../services/reporte.service';
 import { ticketService } from '../../services/ticket.service';
+import type { MovimientoCaja } from '../../types/caja.types';
 
 const ArqueoCaja: React.FC = () => {
     const { idTerminalWeb, nroCaja, estadoCaja } = useTerminal();
@@ -39,20 +43,47 @@ const ArqueoCaja: React.FC = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
-    // Totales de las secciones
-    const [totalEfectivo, setTotalEfectivo] = useState(0);
-    const [totalGastos, setTotalGastos] = useState(0);
-
-    // Estados para montos consolidados por divisa
+    // Estados para montos consolidados por divisa (Apertura)
     const [montoGs, setMontoGs] = useState<string>('');
     const [montoDolar, setMontoDolar] = useState<string>('');
     const [montoReal, setMontoReal] = useState<string>('');
     const [montoPeso, setMontoPeso] = useState<string>('');
 
-    // Sincronizar montoGs con totalEfectivo
+    // Movimientos de Caja
+    const [movimientos, setMovimientos] = useState<MovimientoCaja[]>([]);
+    const [loadingMovimientos, setLoadingMovimientos] = useState(false);
+
+    // Estados para cierre temporal
+    const [isCajaParada, setIsCajaParada] = useState(false);
+    const [tmpCierreData, setTmpCierreData] = useState<any | null>(null);
+    const [totalGsManual, setTotalGsManual] = useState<string>('');
+    const [totalDolarManual, setTotalDolarManual] = useState<string>('');
+    const [totalRealManual, setTotalRealManual] = useState<string>('');
+    const [totalPesoManual, setTotalPesoManual] = useState<string>('');
+
+    const cargarMovimientos = async () => {
+        const boxId = nroCaja || nroCajaEstado;
+        if (!boxId) return;
+
+        setLoadingMovimientos(true);
+        try {
+            const response = await cajaService.obtenerMovimientos(boxId);
+            if (response.success) {
+                setMovimientos(response.result || []);
+            }
+        } catch (err) {
+            console.error('Error al cargar movimientos:', err);
+        } finally {
+            setLoadingMovimientos(false);
+        }
+    };
+
+    // Cargar movimientos cuando nroCaja o nroCajaEstado están disponibles
     useEffect(() => {
-        setTotalEfectivo(parseFloat(montoGs) || 0);
-    }, [montoGs]);
+        if (nroCaja || nroCajaEstado) {
+            cargarMovimientos();
+        }
+    }, [nroCaja, nroCajaEstado]);
 
     // Verificar estado de caja al cargar
     useEffect(() => {
@@ -104,6 +135,9 @@ const ArqueoCaja: React.FC = () => {
                 setNroCajaEstado(1); // TODO: Obtener del backend
                 setSuccess('Caja abierta exitosamente');
 
+                // Recargar historial de movimientos
+                cargarMovimientos();
+
                 // Limpiar inputs
                 setMontoGs('');
                 setMontoDolar('');
@@ -113,6 +147,46 @@ const ArqueoCaja: React.FC = () => {
         } catch (err: any) {
             console.error('Error al abrir caja:', err);
             setError(err.response?.data?.message || 'Error al abrir la caja');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePararCaja = async () => {
+        if (!idTerminalWeb) {
+            setError('No hay terminal configurada');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        setSuccess('');
+
+        try {
+            const userStr = localStorage.getItem('user');
+            const user = userStr ? JSON.parse(userStr) : null;
+            const idPersonal = user?.idPersonal || user?.idUsuario || 1;
+
+            const loadRes = await cajaService.cargarTmpCierreCaja(idTerminalWeb, idPersonal);
+            
+            if (loadRes.success) {
+                const consultaRes = await cajaService.getConsultaTmpCierreCaja(idTerminalWeb);
+                if (consultaRes.success) {
+                    setTmpCierreData(consultaRes.result);
+                    setIsCajaParada(true);
+                    setSuccess('Caja parada exitosamente. Verifique los totales del sistema e ingrese el arqueo físico.');
+                    
+                    // Recargar historial de movimientos
+                    cargarMovimientos();
+                } else {
+                    setError('Se paró la caja pero no se pudieron obtener los totales del sistema.');
+                }
+            } else {
+                setError(loadRes.message || 'Error al parar la caja');
+            }
+        } catch (err: any) {
+            console.error('Error al parar la caja:', err);
+            setError(err.response?.data?.message || 'Error al parar la caja');
         } finally {
             setLoading(false);
         }
@@ -141,7 +215,17 @@ const ArqueoCaja: React.FC = () => {
                 setCajaAbierta(false);
                 setNroCajaEstado(null);
                 setSuccess('Caja cerrada exitosamente');
-                setTotalEfectivo(0);
+
+                // Limpiar estados de cierre temporal
+                setTmpCierreData(null);
+                setIsCajaParada(false);
+                setTotalGsManual('');
+                setTotalDolarManual('');
+                setTotalPesoManual('');
+                setTotalRealManual('');
+
+                // Recargar historial de movimientos
+                cargarMovimientos();
 
                 // Generar reporte de cierre de caja
                 const idParaReporte = response.idMovimientoCaja || idMovimientoCaja;
@@ -161,6 +245,29 @@ const ArqueoCaja: React.FC = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleImprimirReporte = async (idMovimiento: number) => {
+        try {
+            const data = await reporteService.obtenerDatosCierreCaja(idMovimiento);
+            if (data.success) {
+                await ticketService.generarTicketCierreCaja(data);
+            }
+        } catch (error: any) {
+            console.error('Error al imprimir reporte:', error);
+            setError('Error al generar el reporte');
+        }
+    };
+
+    const formatDate = (dateString: string | null) => {
+        if (!dateString) return 'Abierto';
+        return new Date(dateString).toLocaleString('es-PY', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
     };
 
     const formatCurrency = (value: number) => {
@@ -213,13 +320,31 @@ const ArqueoCaja: React.FC = () => {
                                 </Box>
                             </Box>
                         </Grid>
-                        <Grid size={{ xs: 12, md: 6 }} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
+                        <Grid size={{ xs: 12, md: 6 }} sx={{ textAlign: { xs: 'left', md: 'right' }, display: 'flex', justifyContent: { xs: 'flex-start', md: 'flex-end' }, gap: 2 }}>
+                            {cajaAbierta && (
+                                <Button
+                                    variant="contained"
+                                    color="warning"
+                                    size="large"
+                                    startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <StopIcon />}
+                                    onClick={handlePararCaja}
+                                    disabled={loading}
+                                    sx={{
+                                        px: 4,
+                                        py: 1.5,
+                                        fontWeight: 'bold',
+                                        fontSize: '1.1rem',
+                                    }}
+                                >
+                                    Parar Caja
+                                </Button>
+                            )}
                             <Button
                                 variant="contained"
                                 size="large"
                                 startIcon={loading ? <CircularProgress size={20} color="inherit" /> : (cajaAbierta ? <StopIcon /> : <PlayArrowIcon />)}
                                 onClick={cajaAbierta ? handleCerrarCaja : handleIniciarCaja}
-                                disabled={loading}
+                                disabled={loading || (cajaAbierta && !isCajaParada)}
                                 sx={{
                                     backgroundColor: cajaAbierta ? '#f44336' : '#ffffff',
                                     color: cajaAbierta ? 'white' : '#4caf50',
@@ -250,181 +375,372 @@ const ArqueoCaja: React.FC = () => {
                     </Alert>
                 )}
 
-                {/* Resumen de totales */}
-                <Paper sx={{ p: 2, mb: 3 }}>
-                    <Grid container spacing={2}>
-                        <Grid size={{ xs: 12, md: 4 }}>
-                            <Box sx={{ textAlign: 'center', p: 2 }}>
-                                <Typography variant="subtitle2" color="text.secondary">
-                                    Total Efectivo
-                                </Typography>
-                                <Typography variant="h5" color="success.main" fontWeight="bold">
-                                    Gs. {formatCurrency(totalEfectivo)}
-                                </Typography>
-                            </Box>
-                        </Grid>
-                        <Grid size={{ xs: 12, md: 4 }}>
-                            <Box sx={{ textAlign: 'center', p: 2 }}>
-                                <Typography variant="subtitle2" color="text.secondary">
-                                    Total Gastos
-                                </Typography>
-                                <Typography variant="h5" color="error.main" fontWeight="bold">
-                                    Gs. {formatCurrency(totalGastos)}
-                                </Typography>
-                            </Box>
-                        </Grid>
-                        <Grid size={{ xs: 12, md: 4 }}>
-                            <Box sx={{ textAlign: 'center', p: 2, backgroundColor: '#e3f2fd', borderRadius: 1 }}>
-                                <Typography variant="subtitle2" color="text.secondary">
-                                    Saldo Neto
-                                </Typography>
-                                <Typography variant="h5" color="primary.main" fontWeight="bold">
-                                    Gs. {formatCurrency(totalEfectivo - totalGastos)}
-                                </Typography>
-                            </Box>
-                        </Grid>
-                    </Grid>
-                </Paper>
-
                 {/* Secciones modulares */}
                 <Grid container spacing={3}>
-                    {/* Montos de Apertura de Caja */}
-                    <Grid size={{ xs: 12, md: 6 }}>
-                        <Card elevation={3}>
-                            <CardHeader
-                                avatar={<MoneyIcon color="success" />}
-                                title={
-                                    <Typography variant="h6" fontWeight="bold">
-                                        {cajaAbierta ? '💵 Caja Abierta' : '💵 Apertura de Caja'}
+                    {!cajaAbierta ? (
+                        /* Si la caja está cerrada, mostrar únicamente la sección de apertura */
+                        <Grid size={{ xs: 12 }}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                                    Ingrese los montos iniciales por divisa para iniciar la caja:
+                                </Typography>
+                                <Grid container spacing={2}>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <TextField
+                                            fullWidth
+                                            label="Guaraníes (Gs.)"
+                                            type="number"
+                                            value={montoGs}
+                                            onChange={(e) => setMontoGs(e.target.value)}
+                                            InputProps={{
+                                                startAdornment: <InputAdornment position="start">₲</InputAdornment>,
+                                            }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <TextField
+                                            fullWidth
+                                            label="Dólares (USD)"
+                                            type="number"
+                                            value={montoDolar}
+                                            onChange={(e) => setMontoDolar(e.target.value)}
+                                            InputProps={{
+                                                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                            }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <TextField
+                                            fullWidth
+                                            label="Reales (BRL)"
+                                            type="number"
+                                            value={montoReal}
+                                            onChange={(e) => setMontoReal(e.target.value)}
+                                            InputProps={{
+                                                startAdornment: <InputAdornment position="start">R$</InputAdornment>,
+                                            }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <TextField
+                                            fullWidth
+                                            label="Pesos (ARS)"
+                                            type="number"
+                                            value={montoPeso}
+                                            onChange={(e) => setMontoPeso(e.target.value)}
+                                            InputProps={{
+                                                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                            }}
+                                        />
+                                    </Grid>
+                                </Grid>
+                            </Box>
+                        </Grid>
+                    ) : (
+                        /* Si la caja está abierta, mostrar únicamente la sección de cierre */
+                        <Grid size={{ xs: 12 }}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                {/* Movimientos de Control */}
+                                <Box>
+                                    <Typography variant="subtitle1" fontWeight="bold" gutterBottom color="primary">
+                                        Movimientos de Control
                                     </Typography>
-                                }
-                                sx={{ 
-                                    backgroundColor: cajaAbierta ? '#e3f2fd' : '#e8f5e9', 
-                                    borderBottom: cajaAbierta ? '1px solid #bbdefb' : '1px solid #c8e6c9' 
-                                }}
-                            />
-                            <CardContent>
-                                {!cajaAbierta ? (
-                                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                                            Ingrese los montos iniciales por divisa para iniciar la caja:
-                                        </Typography>
-                                        <Grid container spacing={2}>
-                                            <Grid size={{ xs: 12, sm: 6 }}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Guaraníes (Gs.)"
-                                                    type="number"
-                                                    value={montoGs}
-                                                    onChange={(e) => setMontoGs(e.target.value)}
-                                                    InputProps={{
-                                                        startAdornment: <InputAdornment position="start">₲</InputAdornment>,
-                                                    }}
-                                                />
-                                            </Grid>
-                                            <Grid size={{ xs: 12, sm: 6 }}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Dólares (USD)"
-                                                    type="number"
-                                                    value={montoDolar}
-                                                    onChange={(e) => setMontoDolar(e.target.value)}
-                                                    InputProps={{
-                                                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                    }}
-                                                />
-                                            </Grid>
-                                            <Grid size={{ xs: 12, sm: 6 }}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Reales (BRL)"
-                                                    type="number"
-                                                    value={montoReal}
-                                                    onChange={(e) => setMontoReal(e.target.value)}
-                                                    InputProps={{
-                                                        startAdornment: <InputAdornment position="start">R$</InputAdornment>,
-                                                    }}
-                                                />
-                                            </Grid>
-                                            <Grid size={{ xs: 12, sm: 6 }}>
-                                                <TextField
-                                                    fullWidth
-                                                    label="Pesos (ARS)"
-                                                    type="number"
-                                                    value={montoPeso}
-                                                    onChange={(e) => setMontoPeso(e.target.value)}
-                                                    InputProps={{
-                                                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                    }}
-                                                />
-                                            </Grid>
+                                    <Grid container spacing={2}>
+                                        <Grid size={{ xs: 6, sm: 3 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Mov. Inicial 1"
+                                                value={tmpCierreData?.idMovIni1 || ''}
+                                                disabled
+                                                size="small"
+                                            />
                                         </Grid>
-                                    </Box>
-                                ) : (
-                                    <Box sx={{ p: 2, textAlign: 'center' }}>
-                                        <Typography variant="body1" color="text.secondary">
-                                            La caja se encuentra abierta y activa.
-                                        </Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                            Puede registrar gastos o realizar el cierre desde esta pantalla.
-                                        </Typography>
-                                    </Box>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </Grid>
+                                        <Grid size={{ xs: 6, sm: 3 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Mov. Final 1"
+                                                value={tmpCierreData?.idMovFin1 || ''}
+                                                disabled
+                                                size="small"
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 6, sm: 3 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Mov. Inicial 2"
+                                                value={tmpCierreData?.idMovIni2 || ''}
+                                                disabled
+                                                size="small"
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 6, sm: 3 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Mov. Final 2"
+                                                value={tmpCierreData?.idMovFin2 || ''}
+                                                disabled
+                                                size="small"
+                                            />
+                                        </Grid>
+                                    </Grid>
+                                </Box>
 
-                    {/* Gastos */}
-                    <Grid size={{ xs: 12, md: 6 }}>
-                        <Card elevation={3}>
-                            <CardHeader
-                                avatar={<MoneyOffIcon color="error" />}
-                                title={
-                                    <Typography variant="h6" fontWeight="bold">
-                                        📝 Gastos
-                                    </Typography>
-                                }
-                                sx={{
-                                    backgroundColor: cajaAbierta
-                                        ? 'rgba(251, 209, 209, 1)'
-                                        : 'rgba(180, 180, 180, 0.4)',
-                                    borderBottom: '1px solid #ffcdd2'
-                                }}
-                            />
-                            <CardContent>
-                                <DetArqueoGastos
-                                    idTerminalWeb={idTerminalWeb || 0}
-                                    idMovimientoCaja={idMovimientoCaja}
-                                    onTotalChange={setTotalGastos}
-                                    disabled={!cajaAbierta}
-                                />
-                            </CardContent>
-                        </Card>
-                    </Grid>
+                                <Divider />
 
-                    {/* Transferencias */}
-                    <Grid size={{ xs: 12, md: 6 }}>
-                        <Card elevation={3}>
-                            <CardHeader
-                                avatar={<SyncIcon color="primary" />}
-                                title={
-                                    <Typography variant="h6" fontWeight="bold">
-                                        🔄 Transferencias
+                                {/* Totales del Sistema */}
+                                <Box>
+                                    <Typography variant="subtitle1" fontWeight="bold" gutterBottom color="primary">
+                                        Totales del Sistema (Tarjetas y Otros)
                                     </Typography>
-                                }
-                                sx={{
-                                    backgroundColor: cajaAbierta
-                                        ? '#e3f2fd'
-                                        : 'rgba(180, 180, 180, 0.4)',
-                                    borderBottom: '1px solid #bbdefb'
-                                }}
-                            />
-                            <CardContent>
-                                <DetArqueoTransferencias disabled={!cajaAbierta} />
-                            </CardContent>
-                        </Card>
-                    </Grid>
+                                    <Grid container spacing={2}>
+                                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Tarjeta Crédito"
+                                                value={formatCurrency(tmpCierreData?.totalTarjetaCredito || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">₲</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Tarjeta Débito"
+                                                value={formatCurrency(tmpCierreData?.totalTarjetaDebito || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">₲</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Retiro Dinero"
+                                                value={formatCurrency(tmpCierreData?.totalRetiroDinero || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">₲</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Total Gasto"
+                                                value={formatCurrency(tmpCierreData?.totalGasto || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">₲</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Total Crédito"
+                                                value={formatCurrency(tmpCierreData?.totalCredito || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">₲</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Total General"
+                                                value={formatCurrency(tmpCierreData?.totalGeneral || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">₲</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                    </Grid>
+                                </Box>
+
+                                <Divider />
+
+                                {/* Ajuste Crítico de Monedas */}
+                                <Box>
+                                    <Typography variant="subtitle1" fontWeight="bold" gutterBottom color="primary">
+                                        Ajuste de Monedas (Sistema vs Físico)
+                                    </Typography>
+                                    <Grid container spacing={2}>
+                                        {/* Guaraníes */}
+                                        <Grid size={{ xs: 6 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Guaraníes (Sistema)"
+                                                value={formatCurrency(tmpCierreData?.totalGsSistema || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">₲</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 6 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Guaraníes (Físico Manual)"
+                                                type="number"
+                                                value={totalGsManual}
+                                                onChange={(e) => setTotalGsManual(e.target.value)}
+                                                disabled={!isCajaParada}
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">₲</InputAdornment> }}
+                                            />
+                                        </Grid>
+
+                                        {/* Dólares */}
+                                        <Grid size={{ xs: 6 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Dólares (Sistema)"
+                                                value={formatCurrency(tmpCierreData?.totalDolarSistema || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 6 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Dólares (Físico Manual)"
+                                                type="number"
+                                                value={totalDolarManual}
+                                                onChange={(e) => setTotalDolarManual(e.target.value)}
+                                                disabled={!isCajaParada}
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                                            />
+                                        </Grid>
+
+                                        {/* Reales */}
+                                        <Grid size={{ xs: 6 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Reales (Sistema)"
+                                                value={formatCurrency(tmpCierreData?.totalRealSistema || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">R$</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 6 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Reales (Físico Manual)"
+                                                type="number"
+                                                value={totalRealManual}
+                                                onChange={(e) => setTotalRealManual(e.target.value)}
+                                                disabled={!isCajaParada}
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">R$</InputAdornment> }}
+                                            />
+                                        </Grid>
+
+                                        {/* Pesos */}
+                                        <Grid size={{ xs: 6 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Pesos (Sistema)"
+                                                value={formatCurrency(tmpCierreData?.totalPesoSistema || 0)}
+                                                disabled
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 6 }}>
+                                            <TextField
+                                                fullWidth
+                                                label="Pesos (Físico Manual)"
+                                                type="number"
+                                                value={totalPesoManual}
+                                                onChange={(e) => setTotalPesoManual(e.target.value)}
+                                                disabled={!isCajaParada}
+                                                size="small"
+                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                                            />
+                                        </Grid>
+                                    </Grid>
+                                </Box>
+                            </Box>
+                        </Grid>
+                    )}
                 </Grid>
+
+                {/* Historial de Movimientos */}
+                <Box sx={{ mt: 4 }}>
+                    {loadingMovimientos ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                            <CircularProgress />
+                        </Box>
+                    ) : movimientos.length > 0 ? (
+                        <>
+                            <Typography variant="h6" fontWeight="bold">
+                                📋 Historial de Movimientos de Caja
+                            </Typography>
+                            <TableContainer component={Paper} sx={{ maxHeight: 350 }}>
+                                <Table size="small" stickyHeader>
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>ID</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Responsable Apertura</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Monto Inicial</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Fecha Apertura</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Responsable Cierre</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Fecha Cierre</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Monto Contado</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Monto Sistema</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Estado</TableCell>
+                                            <TableCell align="center" sx={{ fontWeight: 'bold', backgroundColor: '#eeeeee' }}>Acciones</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {movimientos.map((mov) => {
+                                            const idMovimientoCajaActual = localStorage.getItem('idMovimientoCaja');
+                                            const esMovimientoActual = idMovimientoCajaActual &&
+                                                parseInt(idMovimientoCajaActual) === mov.idMovimientoCaja;
+
+                                            return (
+                                                <TableRow key={mov.idMovimientoCaja} hover sx={{ backgroundColor: esMovimientoActual ? '#e8f5e9' : 'transparent' }}>
+                                                    <TableCell>{mov.idMovimientoCaja}</TableCell>
+                                                    <TableCell>{mov.responsableApertura}</TableCell>
+                                                    <TableCell>₲ {formatCurrency(mov.montoInicial || 0)}</TableCell>
+                                                    <TableCell>{formatDate(mov.fechaApertura)}</TableCell>
+                                                    <TableCell>{mov.responsableCierre || '-'}</TableCell>
+                                                    <TableCell>{formatDate(mov.fechaCierre)}</TableCell>
+                                                    <TableCell>₲ {formatCurrency(mov.montoContadoCajero || 0)}</TableCell>
+                                                    <TableCell>₲ {formatCurrency(mov.montoSistema || 0)}</TableCell>
+                                                    <TableCell>
+                                                        <Chip
+                                                            label={mov.estado}
+                                                            color={mov.estado === 'ABIERTA' ? 'success' : 'default'}
+                                                            size="small"
+                                                            sx={{ fontWeight: 'bold' }}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell align="center">
+                                                        {mov.fechaCierre && (
+                                                            <Button
+                                                                variant="outlined"
+                                                                size="small"
+                                                                onClick={() => handleImprimirReporte(mov.idMovimientoCaja)}
+                                                            >
+                                                                Reporte
+                                                            </Button>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </>
+                    ) : (
+                        <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
+                            No hay movimientos registrados para esta caja.
+                        </Typography>
+                    )}
+                </Box>
             </Box>
         </RequirePermission>
     );

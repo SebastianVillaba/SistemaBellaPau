@@ -1,6 +1,27 @@
 import axios from 'axios';
+import type { MovimientoCaja } from '../types/caja.types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+export interface TmpCierreResponse {
+    success: boolean;
+    result: {
+        idMovIni1: number | null;
+        idMovFin1: number | null;
+        idMovIni2: number | null;
+        idMovFin2: number | null;
+        totalGsSistema: number;
+        totalDolarSistema: number;
+        totalPesoSistema: number;
+        totalRealSistema: number;
+        totalTarjetaCredito: number;
+        totalTarjetaDebito: number;
+        totalRetiroDinero: number;
+        totalGasto: number;
+        totalCredito: number;
+        totalGeneral: number;
+    };
+}
 
 export interface ArqueoCajaTmpItem {
     idArqueoTmp: number;
@@ -180,6 +201,42 @@ export const cajaService = {
     ): Promise<{ success: boolean; message?: string }> => {
         const response = await axios.delete(`${API_URL}/caja/eliminarGastoCajaTmp`, {
             params: { idGastoCajaTmp, idTerminalWeb }
+        });
+        return response.data;
+    },
+
+    /**
+     * Carga el cierre temporal de caja
+     */
+    cargarTmpCierreCaja: async (
+        idTerminalWeb: number,
+        idPersonal: number
+    ): Promise<any> => {
+        const response = await axios.post(`${API_URL}/caja/cargar-tmp-cierre`, {
+            idTerminalWeb,
+            idPersonal,
+        });
+        return response.data;
+    },
+
+    /**
+     * Consulta el cierre temporal de caja
+     */
+    getConsultaTmpCierreCaja: async (
+        idTerminalWeb: number
+    ): Promise<TmpCierreResponse> => {
+        const response = await axios.get(`${API_URL}/caja/consulta-tmp-cierre/${idTerminalWeb}`);
+        return response.data;
+    },
+
+    /**
+     * Obtiene los movimientos de una caja
+     */
+    obtenerMovimientos: async (
+        idCaja: number
+    ): Promise<{ success: boolean; result: MovimientoCaja[] }> => {
+        const response = await axios.get(`${API_URL}/caja/movimientos`, {
+            params: { idCaja }
         });
         return response.data;
     },

@@ -8,6 +8,7 @@ interface Usuario {
   username: string;
   password: string;
   role: string;
+  idPersonal?: number;
 }
 
 export const register = async (req: Request, res: Response): Promise<void> => {
@@ -84,7 +85,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       user: {
         idUsuario: user.idUsuario,
         username: user.username,
-        role: user.role
+        role: user.role,
+        idPersonal: user.idPersonal
       },
       success: true
     });

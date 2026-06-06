@@ -8,7 +8,10 @@ import {
   listarArqueoCajaTmp,
   eliminarArqueoCajaTmp,
   eliminarGastoCajaTmp,
-  listarGastoCajaTmp
+  listarGastoCajaTmp,
+  cargarTmpCierreCaja,
+  consultaTmpCierreCaja,
+  obtenerMovimientosCaja
 } from '../controllers/caja.controller';
 
 const router = Router();
@@ -39,5 +42,14 @@ router.delete('/eliminarArqueoCajaTmp', eliminarArqueoCajaTmp);
 
 // Ruta para eliminar un gasto de caja
 router.delete('/eliminarGastoCajaTmp', eliminarGastoCajaTmp);
+
+// Ruta para cargar el cierre temporal de caja
+router.post('/cargar-tmp-cierre', cargarTmpCierreCaja);
+
+// Ruta para consultar el cierre temporal de caja
+router.get('/consulta-tmp-cierre/:idTerminalWeb', consultaTmpCierreCaja);
+
+// Ruta para obtener los movimientos de caja
+router.get('/movimientos', obtenerMovimientosCaja);
 
 export default router;
